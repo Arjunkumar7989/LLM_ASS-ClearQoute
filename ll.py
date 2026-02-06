@@ -3,34 +3,48 @@
 # -------------------------------
 PANEL_SYNONYMS = {
     "rear bumper": ["rear bumper", "back bumper", "rear side"],
-    "front bumper": ["front bumper", "front side"],
+    "front bumper": ["front bumper"],
     "front panel": ["front panel", "front side panel"]
 }
 
 
 def normalize_panel(text: str):
+    """
+    Maps user-friendly panel terms to canonical DB values.
+    If multiple matches exist, returns the most specific one.
+    """
     text = text.lower()
+    matches = []
+
     for panel, aliases in PANEL_SYNONYMS.items():
         for alias in aliases:
             if alias in text:
-                return panel
-    return None
+                matches.append(panel)
+
+    if not matches:
+        return None
+
+    # Prefer longer / more specific panel names
+    return sorted(matches, key=len, reverse=True)[0]
 
 
 # -------------------------------
 # Time filter (table-aware)
 # -------------------------------
 def extract_time_filter(text: str, table: str):
+    """
+    Extracts date filters from natural language.
+    Uses rolling windows unless calendar month explicitly mentioned.
+    """
     text = text.lower()
 
-    # choose correct date column
     column = "created_at" if table == "repairs" else "detected_at"
-
-    if "last 30 days" in text:
-        return f"date({column}) >= date('now', '-30 day')"
 
     if "last 7 days" in text:
         return f"date({column}) >= date('now', '-7 day')"
+
+    if "last 30 days" in text or "recent" in text:
+        return f"date({column}) >= date('now', '-30 day')"
 
     if "this month" in text:
         return f"strftime('%Y-%m', {column}) = strftime('%Y-%m', 'now')"
@@ -42,6 +56,9 @@ def extract_time_filter(text: str, table: str):
 # Main NL → SQL function
 # -------------------------------
 def process_input(question: str):
+    """
+    Converts natural language question into safe, read-only SQL.
+    """
     q = question.lower()
 
     # ---- Average repair cost ----
@@ -55,6 +72,7 @@ def process_input(question: str):
 
         panel = normalize_panel(q)
         if panel:
+            # panel value comes from controlled vocabulary → safe
             conditions.append(f"panel_name = '{panel}'")
 
         time_filter = extract_time_filter(q, "repairs")
@@ -71,7 +89,7 @@ def process_input(question: str):
         sql = """
         SELECT COUNT(*)
         FROM damage_detections
-        WHERE severity >= 4
+        WHERE severity = 5
         """
 
         panel = normalize_panel(q)
