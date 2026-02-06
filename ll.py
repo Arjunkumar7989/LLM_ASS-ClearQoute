@@ -58,10 +58,16 @@ def extract_time_filter(text: str, table: str):
 def process_input(question: str):
     """
     Converts natural language question into safe, read-only SQL.
+    Returns:
+        sql_query (str)
+        assumptions (list[str])
     """
     q = question.lower()
+    assumptions = []
 
-    # ---- Average repair cost ----
+    # -------------------------------------------------
+    # Average repair cost
+    # -------------------------------------------------
     if "average" in q and "repair cost" in q:
         sql = """
         SELECT AVG(repair_cost)
@@ -70,21 +76,32 @@ def process_input(question: str):
 
         conditions = []
 
+        # Panel handling
         panel = normalize_panel(q)
         if panel:
-            # panel value comes from controlled vocabulary → safe
             conditions.append(f"panel_name = '{panel}'")
 
+        # Severity assumption (not specified)
+        assumptions.append("All damage severities were considered")
+
+        # Time handling
         time_filter = extract_time_filter(q, "repairs")
         if time_filter:
             conditions.append(time_filter)
+        else:
+            conditions.append("date(created_at) >= date('now', '-30 day')")
+            assumptions.append(
+                "Time range not specified, defaulted to last 30 days"
+            )
 
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)
 
-        return sql.strip()
+        return sql.strip(), assumptions
 
-    # ---- Count severe damages ----
+    # -------------------------------------------------
+    # Count severe damages
+    # -------------------------------------------------
     if "severe" in q and "damage" in q:
         sql = """
         SELECT COUNT(*)
@@ -92,14 +109,24 @@ def process_input(question: str):
         WHERE severity = 5
         """
 
+        # Panel handling
         panel = normalize_panel(q)
         if panel:
             sql += f" AND panel_name = '{panel}'"
 
+        # Time handling
         time_filter = extract_time_filter(q, "damage_detections")
         if time_filter:
             sql += f" AND {time_filter}"
+        else:
+            sql += " AND date(detected_at) >= date('now', '-30 day')"
+            assumptions.append(
+                "Time range not specified, defaulted to last 30 days"
+            )
 
-        return sql.strip()
+        return sql.strip(), assumptions
 
-    return None
+    # -------------------------------------------------
+    # Unsupported query
+    # -------------------------------------------------
+    return None, []
